@@ -3,13 +3,13 @@ PODMAN := which("podman") || require("podman-remote")
 workdir := env("TITANOBOA_WORKDIR", "work")
 isoroot := env("TITANOBOA_ISO_ROOT", "work/iso-root")
 rootfs := workdir/"rootfs"
-default_image := "ghcr.io/ublue-os/bluefin:lts"
+default_image := "ghcr.io/tulilirockz/arch-bootc:latest"
 arch := arch()
 ### BUILDER CONFIGURATION ###
 # Distribution to use for the builder container (for tools and dependencies)
-# Supported values: fedora, centos, almalinux
-# Set via TITANOBOA_BUILDER_DISTRO environment variable (default: fedora)
-builder_distro := env("TITANOBOA_BUILDER_DISTRO", "fedora")
+# Supported values: archlinux
+# Set via TITANOBOA_BUILDER_DISTRO environment variable (default: archlinux)
+builder_distro := env("TITANOBOA_BUILDER_DISTRO", "archlinux")
 ##############################
 
 ### HOOKS SCRIPT PATHS ###
@@ -37,7 +37,7 @@ just := just_executable() + " -f " + source_file()
 git_root := source_dir()
 
 [private]
-builder_image := if builder_distro == "fedora" { "quay.io/fedora/fedora:latest" } else if builder_distro == "centos" { "ghcr.io/hanthor/centos-anaconda-builder:main" } else if builder_distro == "almalinux-kitten" { "quay.io/almalinux/almalinux:10-kitten" } else if builder_distro == "almalinux" { "quay.io/almalinux/almalinux:10" } else { error("Unsupported builder distribution: " + builder_distro + ". Supported: fedora, centos, almalinux") }
+builder_image := if builder_distro == "archlinux" { "ghcr.io/tulilirockz/arch-bootc:latest" } else { error("Unsupported builder distribution: " + builder_distro + ". Supported: archlinux") }
 
 
 [private]
@@ -295,7 +295,7 @@ squash fs_type="squashfs":
     if ! (( BUILDER )); then
         bash -c "$CMD" "$(realpath {{ rootfs }})" "$(realpath {{ workdir }})"
     else
-        CMD="dnf install -y {{ if fs_type == 'squashfs' { 'squashfs-tools' } else if fs_type == 'erofs' { 'erofs-utils' } else { '' } }} ; $CMD"
+        CMD="pacman -Sy --noconfirm {{ if fs_type == 'squashfs' { 'squashfs-tools' } else if fs_type == 'erofs' { 'erofs-utils' } else { '' } }} ; $CMD"
         builder "$CMD" "/app/{{ rootfs }}" "/app/{{ workdir }}"
     fi
 
@@ -342,7 +342,7 @@ iso:
     CMD='set -xeuo pipefail
     ISOROOT="$0"
     WORKDIR="$1"
-    dnf install -y grub2 grub2-efi grub2-tools grub2-tools-extra xorriso shim dosfstools {{ if arch == "x86_64" { 'grub2-efi-x64-modules grub2-efi-x64-cdboot grub2-efi-x64' } else if arch == "aarch64" { 'grub2-efi-aa64-modules' } else { '' } }}
+    pacman -Sy --noconfirm grub xorriso shim dosfstools mtools
     mkdir -p $ISOROOT/EFI/BOOT
     # ARCH_SHORT needs to be uppercase
     ARCH_SHORT="$(echo {{ arch }} | sed 's/x86_64/x64/g' | sed 's/aarch64/aa64/g')"
@@ -355,25 +355,21 @@ iso:
     ARCH_OUT="$(echo {{ arch }} | sed 's/x86_64/i386-pc-eltorito/g' | sed 's/aarch64/arm64-efi/g')"
     ARCH_MODULES="$(echo {{ arch }} | sed 's/x86_64/biosdisk/g' | sed 's/aarch64/efi_gop/g')"
 
-    grub2-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
-    grub2-mkrescue -o $ISOROOT/../efiboot.img
+    grub-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
+    grub-mkrescue -o $ISOROOT/../efiboot.img
 
     EFI_BOOT_MOUNT=$(mktemp -d)
-    dnf reinstall kernel-modules
-    modprobe loop
-    mknod -m640 $EFI_BOOT_MOUNT b 7 8 
-    mount -o loop $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
+
+    mount $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
     cp -r $EFI_BOOT_MOUNT/boot/grub $ISOROOT/boot/
     umount $EFI_BOOT_MOUNT
     rm -rf $EFI_BOOT_MOUNT
 
     # https://github.com/FyraLabs/katsu/blob/1e26ecf74164c90bc24299a66f8495eb2aef4845/src/builder.rs#L145
     EFI_BOOT_PART=$(mktemp -d)
-    modprobe loop
-    mknod -m640 $EFI_BOOT_PART b 7 8 
     fallocate $WORKDIR/efiboot.img -l 25M
     mkfs.msdos -v -n EFI $WORKDIR/efiboot.imgS
-    mount -o loop $WORKDIR/efiboot.img $EFI_BOOT_PART
+    mount $WORKDIR/efiboot.img $EFI_BOOT_PART
     mkdir -p $EFI_BOOT_PART/EFI/BOOT
     cp -dRvf $ISOROOT/EFI/BOOT/. $EFI_BOOT_PART/EFI/BOOT
     umount $EFI_BOOT_PART
@@ -412,7 +408,7 @@ iso:
     else
         {{ if `systemd-detect-virt -c || true` != 'none' { "echo '" + style('error') + "ERROR[iso]" + NORMAL + ": Cannot run in nested containers'; exit 1" } else { '' } }}
         {{ builder_function }}
-        CMD="pacman -Sy --noconfirm grub libisoburn shim dosfstools ; $CMD"
+        CMD="pacman -Sy --noconfirm grub xorriso shim mtools dosfstools ; $CMD"
         builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}"
     fi
 
