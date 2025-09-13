@@ -240,6 +240,7 @@ rootfs-install-livesys-scripts livesys="1":
 
     # Enable services
     systemctl enable livesys.service livesys-late.service
+    systemctl enable gdm
 
     # Set default time zone to prevent oddities with KDE clock
     echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
@@ -358,16 +359,21 @@ iso:
     grub2-mkrescue -o $ISOROOT/../efiboot.img
 
     EFI_BOOT_MOUNT=$(mktemp -d)
-    mount $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
+    dnf reinstall kernel-modules
+    modprobe loop
+    mknod -m640 $EFI_BOOT_MOUNT b 7 8 
+    mount -o loop $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
     cp -r $EFI_BOOT_MOUNT/boot/grub $ISOROOT/boot/
     umount $EFI_BOOT_MOUNT
     rm -rf $EFI_BOOT_MOUNT
 
     # https://github.com/FyraLabs/katsu/blob/1e26ecf74164c90bc24299a66f8495eb2aef4845/src/builder.rs#L145
     EFI_BOOT_PART=$(mktemp -d)
+    modprobe loop
+    mknod -m640 $EFI_BOOT_PART b 7 8 
     fallocate $WORKDIR/efiboot.img -l 25M
-    mkfs.msdos -v -n EFI $WORKDIR/efiboot.img
-    mount $WORKDIR/efiboot.img $EFI_BOOT_PART
+    mkfs.msdos -v -n EFI $WORKDIR/efiboot.imgS
+    mount -o loop $WORKDIR/efiboot.img $EFI_BOOT_PART
     mkdir -p $EFI_BOOT_PART/EFI/BOOT
     cp -dRvf $ISOROOT/EFI/BOOT/. $EFI_BOOT_PART/EFI/BOOT
     umount $EFI_BOOT_PART
