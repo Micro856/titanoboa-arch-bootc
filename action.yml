@@ -27,10 +27,6 @@ inputs:
     description: Where the iso will be placed
     required: false
     default: ${{ github.workspace }}/output.iso
-  flatpaks-list:
-    description: Path to a file with a newline separated flatpak apps list to be installed in the rootfs.
-    required: false
-    default: none
   container-image:
     description: Container image that will be installed onto the target system (can be different from rootfs)
     required: false
@@ -68,7 +64,6 @@ runs:
         IMAGE_REF: ${{ inputs.image-ref }}
         LIVESYS: ${{ inputs.livesys }}
         ACTION_PATH: ${{ github.action_path }}
-        FLATPAKS_LIST: ${{ inputs.flatpaks-list }}
         ADD_POLKIT: ${{ inputs.add-polkit }}
         HOOK_POST_ROOTFS: ${{ inputs.hook-post-rootfs }}
         HOOK_PRE_INITRAMFS: ${{ inputs.hook-pre-initramfs }}
@@ -92,7 +87,7 @@ runs:
           HOOK_pre_initramfs="${HOOK_PRE_INITRAMFS}" \
           TITANOBOA_BUILDER_DISTRO="${TITANOBOA_BUILDER_DISTRO}" \
           $just build \
-          "${IMAGE_REF}" "${USE_LIVESYS}" "${FLATPAKS_LIST}" "${COMPRESSION}" "${EXTRA_KARGS}" "${CONTAINER_IMAGE}" "${ADD_POLKIT}"
+          "${IMAGE_REF}" "${USE_LIVESYS}" "${COMPRESSION}" "${EXTRA_KARGS}" "${CONTAINER_IMAGE}" "${ADD_POLKIT}"
 
         # Fix iso file permisions
         sudo chown $(id -u):$(id -g) ./output.iso
