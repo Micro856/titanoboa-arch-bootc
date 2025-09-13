@@ -3,7 +3,7 @@ PODMAN := which("podman") || require("podman-remote")
 workdir := env("TITANOBOA_WORKDIR", "work")
 isoroot := env("TITANOBOA_ISO_ROOT", "work/iso-root")
 rootfs := workdir/"rootfs"
-default_image := "ghcr.io/ublue-os/bluefin:lts"
+default_image := "ghcr.io/micro856/netc-image:latest"
 arch := arch()
 ### BUILDER CONFIGURATION ###
 # Distribution to use for the builder container (for tools and dependencies)
@@ -156,8 +156,8 @@ initramfs:
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    pacman -Sy --noconfirm dracut
-    INSTALLED_KERNEL=$(basename "$(find "/usr/lib/modules" -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
+    dnf install -y dracut-live
+    INSTALLED_KERNEL=$(rpm -q kernel-core --queryformat "%{evr}.%{arch}" | tail -n 1)
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
     dracut --zstd --reproducible --no-hostonly --kver "$INSTALLED_KERNEL" --add "dmsquash-live dmsquash-live-autooverlay" --force /app/{{ workdir }}/initramfs.img |& grep -v -e "Operation not supported"'
@@ -171,26 +171,9 @@ rootfs-include-container container_image=default_image image=default_image:
     set -euo pipefail
     CMD="set -xeuo pipefail
     mkdir -p /var/lib/containers/storage
-    pacman -Sy --noconfirm podman
     podman pull {{ container_image || image }}
-    pacman -Sy --noconfirm fuse-overlayfs"
+    dnf install -y fuse-overlayfs"
     chroot "$CMD"
-
-# Install Flatpaks into the live system
-rootfs-include-flatpaks FLATPAKS_FILE="src/flatpaks.example.txt":
-    #!/usr/bin/env bash
-    {{ _ci_grouping }}
-    {{ if FLATPAKS_FILE =~ '(^$|^(?i)\bnone\b$)' { 'exit 0' } else if path_exists(FLATPAKS_FILE) == 'false' { error('Flatpak file inaccessible: ' + FLATPAKS_FILE) } else { '' } }}
-    {{ chroot_function }}
-    CMD='set -xeuo pipefail
-    mkdir -p /var/lib/flatpak
-    pacman -S --noconfirm flatpak
-
-    # Get Flatpaks
-    flatpak remote-add --if-not-exists flathub "https://dl.flathub.org/repo/flathub.flatpakrepo"
-    grep -v "#.*" /flatpak-list/$(basename {{ FLATPAKS_FILE }}) | sort --reverse | xargs "-i{}" -d "\n" sh -c "flatpak remote-info --arch={{ arch }} --system flathub {} &>/dev/null && flatpak install --noninteractive -y {}" || true'
-    set -euo pipefail
-    chroot "$CMD" --volume "$(realpath "$(dirname {{ FLATPAKS_FILE }})")":/flatpak-list
 
 # Install polkit rules
 rootfs-include-polkit polkit="1":
@@ -208,39 +191,12 @@ rootfs-install-livesys-scripts livesys="1":
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    curl https://pagure.io/livesys-scripts/archive/0.8.0/livesys-scripts-0.8.0.tar.gz --output /tmp/livesys.tar.gz
-    cd /tmp
-    tar -xf livesys.tar.gz
-    cd livesys-scripts-0.8.0
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/etc/sysconfig/livesys -t /etc/sysconfig
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/functions -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/livesys-late -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/livesys-main -t /usr/libexec/livesys
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/libexec/livesys/sessions.d/livesys-* -t /usr/libexec/livesys/sessions.d/
-    install -D -m 0644 /tmp/livesys-scripts-0.8.0/systemd/*.service -t /usr/lib/systemd/system
-    cd /
-    
+    dnf="$({ which dnf5 || which dnf; } 2>/dev/null)"
+    $dnf install -y livesys-scripts
 
     # Determine desktop environment. Must match one of /usr/libexec/livesys/sessions.d/livesys-{desktop_env}
-    desktop_env=""
-    _session_file="$(find /usr/share/wayland-sessions/ /usr/share/xsessions \
-        -maxdepth 1 -type f -not -name '*gamescope*.desktop' -and -name '*.desktop' -printf '%P' -quit)"
-    case $_session_file in
-        budgie*) desktop_env=budgie ;;
-        cosmic*) desktop_env=cosmic ;;
-        gnome*)  desktop_env=gnome  ;;
-        plasma*) desktop_env=kde    ;;
-        sway*)   desktop_env=sway   ;;
-        xfce*)   desktop_env=xfce   ;;
-        *) echo "\
-           {{ style('error') }}ERROR[rootfs-install-livesys-scripts]{{ NORMAL }}\
-           : No Livesys Environment Found"; exit 1 ;;
-    esac && unset -v _session_file
-    sed -i "s/^livesys_session=.*/livesys_session=${desktop_env}/" /etc/sysconfig/livesys
-
     # Enable services
     systemctl enable livesys.service livesys-late.service
-    systemctl enable gdm
 
     # Set default time zone to prevent oddities with KDE clock
     echo "C /var/lib/livesys/livesys-session-extra 0755 root root - /usr/share/factory/var/lib/livesys/livesys-session-extra" > \
@@ -277,11 +233,28 @@ rootfs-clean-sysroot:
     CMD='set -xeuo pipefail
     if [[ -d /app ]]; then
         rm -rf /sysroot /ostree
-        pacman -Sc --noconfirm
-        pacman -Scc --noconfirm
-        rm -rf /var/cache/pacman/pkg/*
+        dnf autoremove -y
+        dnf clean all -y
     fi'
     chroot "$CMD"
+
+# Fix SELinux Permissions
+rootfs-selinux-fix image=default_image:
+    #!/usr/bin/env bash
+    {{ _ci_grouping }}
+    set -euo pipefail
+    CMD='set -xeuo pipefail
+    cd /app/{{ rootfs }}
+    setfiles -F -r . /etc/selinux/targeted/contexts/files/file_contexts .
+    chcon --user=system_u --recursive .'
+    {{ PODMAN }} run --rm -it \
+        --volume {{ git_root }}:/app \
+        --workdir "/app" \
+        --security-opt label=disable \
+        --privileged \
+        {{ image }} \
+        /usr/bin/bash -c "$CMD"
+    rmdir {{ rootfs }}/app || true
 
 # Compress rootfs into a compressed image
 squash fs_type="squashfs":
@@ -342,14 +315,21 @@ iso:
     CMD='set -xeuo pipefail
     ISOROOT="$0"
     WORKDIR="$1"
-    dnf install -y grub2 grub2-efi grub2-tools grub2-tools-extra xorriso shim dosfstools {{ if arch == "x86_64" { 'grub2-efi-x64-modules grub2-efi-x64-cdboot grub2-efi-x64' } else if arch == "aarch64" { 'grub2-efi-aa64-modules' } else { '' } }}
+
     mkdir -p $ISOROOT/EFI/BOOT
     # ARCH_SHORT needs to be uppercase
     ARCH_SHORT="$(echo {{ arch }} | sed 's/x86_64/x64/g' | sed 's/aarch64/aa64/g')"
     ARCH_32="$(echo {{ arch }} | sed 's/x86_64/ia32/g' | sed 's/aarch64/arm/g')"
+    if [[ "$(rpm -E %centos)" -ge 10 ]]; then
+        cp -avf /boot/efi/EFI/centos/. $ISOROOT/EFI/BOOT
+    elif [[ "$(rpm -E %fedora)" -ge 41 ]]; then
+        cp -avf /boot/efi/EFI/fedora/. $ISOROOT/EFI/BOOT
+    fi
     cp -avf $ISOROOT/boot/grub/grub.cfg $ISOROOT/EFI/BOOT/BOOT.conf
     cp -avf $ISOROOT/boot/grub/grub.cfg $ISOROOT/EFI/BOOT/grub.cfg
-
+    cp -avf /boot/grub*/fonts/unicode.pf2 $ISOROOT/EFI/BOOT/fonts
+    cp -avf $ISOROOT/EFI/BOOT/shim${ARCH_SHORT}.efi "$ISOROOT/EFI/BOOT/BOOT${ARCH_SHORT^^}.efi"
+    cp -avf $ISOROOT/EFI/BOOT/shim.efi "$ISOROOT/EFI/BOOT/BOOT${ARCH_32}.efi"
 
     ARCH_GRUB="$(echo {{ arch }} | sed 's/x86_64/i386-pc/g' | sed 's/aarch64/arm64-efi/g')"
     ARCH_OUT="$(echo {{ arch }} | sed 's/x86_64/i386-pc-eltorito/g' | sed 's/aarch64/arm64-efi/g')"
@@ -359,21 +339,16 @@ iso:
     grub2-mkrescue -o $ISOROOT/../efiboot.img
 
     EFI_BOOT_MOUNT=$(mktemp -d)
-    dnf reinstall kernel-modules
-    modprobe loop
-    mknod -m640 $EFI_BOOT_MOUNT b 7 8 
-    mount -o loop $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
+    mount $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
     cp -r $EFI_BOOT_MOUNT/boot/grub $ISOROOT/boot/
     umount $EFI_BOOT_MOUNT
     rm -rf $EFI_BOOT_MOUNT
 
     # https://github.com/FyraLabs/katsu/blob/1e26ecf74164c90bc24299a66f8495eb2aef4845/src/builder.rs#L145
     EFI_BOOT_PART=$(mktemp -d)
-    modprobe loop
-    mknod -m640 $EFI_BOOT_PART b 7 8 
     fallocate $WORKDIR/efiboot.img -l 25M
-    mkfs.msdos -v -n EFI $WORKDIR/efiboot.imgS
-    mount -o loop $WORKDIR/efiboot.img $EFI_BOOT_PART
+    mkfs.msdos -v -n EFI $WORKDIR/efiboot.img
+    mount $WORKDIR/efiboot.img $EFI_BOOT_PART
     mkdir -p $EFI_BOOT_PART/EFI/BOOT
     cp -dRvf $ISOROOT/EFI/BOOT/. $EFI_BOOT_PART/EFI/BOOT
     umount $EFI_BOOT_PART
@@ -412,27 +387,27 @@ iso:
     else
         {{ if `systemd-detect-virt -c || true` != 'none' { "echo '" + style('error') + "ERROR[iso]" + NORMAL + ": Cannot run in nested containers'; exit 1" } else { '' } }}
         {{ builder_function }}
-        CMD="pacman -Sy --noconfirm grub libisoburn shim dosfstools ; $CMD"
+        CMD="dnf install -y grub2 grub2-efi grub2-tools grub2-tools-extra xorriso shim dosfstools {{ if arch == "x86_64" { 'grub2-efi-x64-modules grub2-efi-x64-cdboot grub2-efi-x64' } else if arch == "aarch64" { 'grub2-efi-aa64-modules' } else { '' } }}; $CMD"
         builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}"
     fi
 
 # TODO update this recipe parameters. Make it actually usable
 [no-exit-message]
 [doc('Build a live-iso')]
-@build image=default_image livesys="1" flatpaks_file="src/flatpaks.example.txt" compression="squashfs" extra_kargs="NONE" container_image=image polkit="1": \
+@build image=default_image livesys="1" compression="squashfs" extra_kargs="NONE" container_image=image polkit="1": \
     checkroot \
-    (show-config image livesys flatpaks_file compression extra_kargs container_image polkit) \
+    (show-config image livesys compression extra_kargs container_image polkit) \
     clean \
     init-work \
     (rootfs image) \
     (hook-pre-initramfs HOOK_pre_initramfs) \
     initramfs \
-    (rootfs-include-flatpaks flatpaks_file) \
     (rootfs-include-polkit polkit) \
     (rootfs-install-livesys-scripts livesys) \
     (rootfs-include-container container_image image) \
     (hook-post-rootfs HOOK_post_rootfs) \
     rootfs-clean-sysroot \
+    (rootfs-selinux-fix image) \
     (ci-delete-image image) \
     (squash compression) \
     (iso-organize extra_kargs) \
@@ -440,7 +415,7 @@ iso:
     mv ./output.iso {{ justfile_dir() }} &>/dev/null
 
 
-@show-config image livesys flatpaks_file compression extra_kargs container_image polkit:
+@show-config image livesys compression extra_kargs container_image polkit:
     echo "Using the following configuration:"
     echo "{{ style('warning') }}################################################################################{{ NORMAL }}"
     echo "PODMAN             := {{ PODMAN }}"
@@ -453,7 +428,6 @@ iso:
     echo "HOOK_pre_initramfs := {{ if HOOK_pre_initramfs =~ '(^$|^(?i)\bnone\b$)' { '' } else { canonicalize(HOOK_pre_initramfs) } }}"
     echo "image              := {{ image }}"
     echo "livesys            := {{ livesys }}"
-    echo "flatpaks_file      := {{ if flatpaks_file =~ '(^$|^(?i)\bnone\b$)' { '' } else { canonicalize(flatpaks_file) } }}"
     echo "compression        := {{ compression }}"
     echo "extra_kargs        := {{ extra_kargs }}"
     echo "container_image    := {{ container_image || image }}"
