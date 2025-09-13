@@ -358,26 +358,6 @@ iso:
     grub2-mkimage -O $ARCH_OUT -d /usr/lib/grub/$ARCH_GRUB -o $ISOROOT/boot/eltorito.img -p /boot/grub iso9660 $ARCH_MODULES
     grub2-mkrescue -o $ISOROOT/../efiboot.img
 
-    EFI_BOOT_MOUNT=$(mktemp -d)
-    dnf reinstall kernel-modules
-    modprobe loop
-    mknod -m640 $EFI_BOOT_MOUNT b 7 8 
-    mount -o loop $ISOROOT/../efiboot.img $EFI_BOOT_MOUNT
-    cp -r $EFI_BOOT_MOUNT/boot/grub $ISOROOT/boot/
-    umount $EFI_BOOT_MOUNT
-    rm -rf $EFI_BOOT_MOUNT
-
-    # https://github.com/FyraLabs/katsu/blob/1e26ecf74164c90bc24299a66f8495eb2aef4845/src/builder.rs#L145
-    EFI_BOOT_PART=$(mktemp -d)
-    modprobe loop
-    mknod -m640 $EFI_BOOT_PART b 7 8 
-    fallocate $WORKDIR/efiboot.img -l 25M
-    mkfs.msdos -v -n EFI $WORKDIR/efiboot.imgS
-    mount -o loop $WORKDIR/efiboot.img $EFI_BOOT_PART
-    mkdir -p $EFI_BOOT_PART/EFI/BOOT
-    cp -dRvf $ISOROOT/EFI/BOOT/. $EFI_BOOT_PART/EFI/BOOT
-    umount $EFI_BOOT_PART
-
     ARCH_SPECIFIC=()
     if [ "{{ arch }}" == "x86_64" ] ; then
         ARCH_SPECIFIC=("--grub2-mbr" "/usr/lib/grub/i386-pc/boot_hybrid.img")
