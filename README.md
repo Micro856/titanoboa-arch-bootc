@@ -1,3 +1,6 @@
+# NOTE
+This one generates unbootable ISO, sadly fedora has to generate the GRUB and the iso
+
 # Titanoboa (Beta)
 
 A [bootc](https://github.com/bootc-dev/bootc) installer designed to install an image as quickly as possible. Handles a live user session and then hands off to Anaconda or Readymade for installation. 
