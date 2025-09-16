@@ -3,7 +3,7 @@ PODMAN := which("podman") || require("podman-remote")
 workdir := env("TITANOBOA_WORKDIR", "work")
 isoroot := env("TITANOBOA_ISO_ROOT", "work/iso-root")
 rootfs := workdir/"rootfs"
-default_image := "ghcr.io/ublue-os/bluefin:lts"
+default_image := "ghcr.io/tulilirockz/debian-bootc:latest"
 arch := arch()
 ### BUILDER CONFIGURATION ###
 # Distribution to use for the builder container (for tools and dependencies)
@@ -156,11 +156,11 @@ initramfs:
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    pacman -Sy --noconfirm dracut
+    apt install -y dracut
     INSTALLED_KERNEL=$(basename "$(find "/usr/lib/modules" -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
-    dracut --zstd --reproducible --no-hostonly --kver "$INSTALLED_KERNEL" --add "dmsquash-live dmsquash-live-autooverlay" --force /app/{{ workdir }}/initramfs.img |& grep -v -e "Operation not supported"'
+    dracut --zstd --reproducible --no-hostonly --kver "$(cat kernel_version.txt)" --add "dmsquash-live dmsquash-live-autooverlay" --force /app/{{ workdir }}/initramfs.img |& grep -v -e "Operation not supported"'
     chroot "$CMD"
 
 # Embed the container
@@ -171,7 +171,7 @@ rootfs-include-container container_image=default_image image=default_image:
     set -euo pipefail
     CMD="set -xeuo pipefail
     mkdir -p /var/lib/containers/storage
-    pacman -Sy --noconfirm podman
+    apt install -y podman
     podman pull {{ container_image || image }}
     pacman -Sy --noconfirm fuse-overlayfs"
     chroot "$CMD"
