@@ -164,9 +164,9 @@ initramfs:
     install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live/* -t /usr/lib/dracut/modules.d/90dmsquash-live
     install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live-ntfs/* -t /usr/lib/dracut/modules.d/90dmsquash-live-ntfs
     install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live-autooverlay/* -t /usr/lib/dracut/modules.d/90dmsquash-live-autooverlay
+    install -D -m 0644 /tmp/dracut/modules.d/99img-lib/* -t /usr/lib/dracut/modules.d/99img-lib
     cd /
     rm -rf /tmp/dracut
-    apt autoremove -y git
     INSTALLED_KERNEL=$(basename "$(find /usr/lib/modules -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
@@ -286,6 +286,7 @@ rootfs-clean-sysroot:
     set -euo pipefail
     CMD='set -xeuo pipefail
     if [[ -d /app ]]; then
+    	mkdir -p /var/log/apt/
         rm -rf /sysroot /ostree
         apt clean -y
         apt autoclean -y
