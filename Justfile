@@ -156,7 +156,17 @@ initramfs:
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    apt install -y dracut dracut-live
+    apt install -y dracut
+    apt install -y git
+    cd /tmp
+    git clone https://github.com/dracutdevs/dracut.git
+    cd /tmp/dracut/
+    install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live/* -t /usr/lib/dracut/modules.d/90dmsquash-live
+    install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live-ntfs/* -t /usr/lib/dracut/modules.d/90dmsquash-live-ntfs
+    install -D -m 0644 /tmp/dracut/modules.d/90dmsquash-live-autooverlay/* -t /usr/lib/dracut/modules.d/90dmsquash-live-autooverlay
+    cd /
+    rm -rf /tmp/dracut
+    apt autoremove -y git
     INSTALLED_KERNEL=$(basename "$(find /usr/lib/modules -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
@@ -279,7 +289,7 @@ rootfs-clean-sysroot:
         rm -rf /sysroot /ostree
         apt clean -y
         apt autoclean -y
-        apt autoremove -y --purge
+        apt autoremove -y
     fi'
     chroot "$CMD"
 
