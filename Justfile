@@ -156,8 +156,8 @@ initramfs:
     {{ chroot_function }}
     set -euo pipefail
     CMD='set -xeuo pipefail
-    apt install -y dracut
-    apt install -y git
+    DEBIAN_FRONTEND=noninteractive apt install -y dracut
+    DEBIAN_FRONTEND=noninteractive apt install -y git
     cd /tmp
     git clone https://github.com/dracutdevs/dracut.git
     cd /tmp/dracut/
@@ -167,6 +167,7 @@ initramfs:
     install -D -m 0644 /tmp/dracut/modules.d/99img-lib/* -t /usr/lib/dracut/modules.d/99img-lib
     cd /
     rm -rf /tmp/dracut
+    DEBIAN_FRONTEND=noninteractive apt autoremove -y git
     INSTALLED_KERNEL=$(basename "$(find /usr/lib/modules -maxdepth 1 -type d | grep -v -E "*.img" | tail -n 1)")
     mkdir -p $(realpath /root)
     export DRACUT_NO_XATTR=1
@@ -181,9 +182,9 @@ rootfs-include-container container_image=default_image image=default_image:
     set -euo pipefail
     CMD="set -xeuo pipefail
     mkdir -p /var/lib/containers/storage
-    apt install -y podman
+    DEBIAN_FRONTEND=noninteractive apt install -y podman
     podman pull {{ container_image || image }}
-    apt install -y fuse-overlayfs"
+    DEBIAN_FRONTEND=noninteractive apt install -y fuse-overlayfs"
     chroot "$CMD"
 
 # Install Flatpaks into the live system
@@ -194,7 +195,7 @@ rootfs-include-flatpaks FLATPAKS_FILE="src/flatpaks.example.txt":
     {{ chroot_function }}
     CMD='set -xeuo pipefail
     mkdir -p /var/lib/flatpak
-    apt install -y flatpak
+    DEBIAN_FRONTEND=noninteractive apt install -y flatpak
 
     # Get Flatpaks
     flatpak remote-add --if-not-exists flathub "https://dl.flathub.org/repo/flathub.flatpakrepo"
@@ -288,9 +289,9 @@ rootfs-clean-sysroot:
     if [[ -d /app ]]; then
     	mkdir -p /var/log/apt/
         rm -rf /sysroot /ostree
-        apt clean -y
-        apt autoclean -y
-        apt autoremove -y
+        DEBIAN_FRONTEND=noninteractive apt clean -y
+        DEBIAN_FRONTEND=noninteractive apt autoclean -y
+        DEBIAN_FRONTEND=noninteractive apt autoremove -y
     fi'
     chroot "$CMD"
 
@@ -403,7 +404,7 @@ iso:
     else
         {{ if `systemd-detect-virt -c || true` != 'none' { "echo '" + style('error') + "ERROR[iso]" + NORMAL + ": Cannot run in nested containers'; exit 1" } else { '' } }}
         {{ builder_function }}
-        CMD="apt install -y grub2 grub-efi xorriso dosfstools ; $CMD"
+        CMD="DEBIAN_FRONTEND=noninteractive apt install -y grub2 grub-efi xorriso dosfstools ; $CMD"
         builder "$CMD" "/app/{{ isoroot }}" "/app/{{ workdir }}"
     fi
 
